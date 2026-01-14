@@ -5,7 +5,7 @@ library(lme4); library(broom.mixed)
 
 dir.create("output", showWarnings = FALSE)
 
-# ---- load prepared data (you provide this file) ----
+# ---- load prepared data ----
 analysis_wide <- readRDS("data/analysis_wide.rds")
 
 # 3) Logistic regression (incident impairment by 2018/2020)
