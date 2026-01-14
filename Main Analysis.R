@@ -62,6 +62,7 @@ fit_lmm("global_cognitive_score_w", "global_cognition")
 cat("Done\n")
 
 ADNI Main Analysis
+The same workflow was repeated for other outcomes/modalities: merge each longitudinal outcome with baseline TNFR1 and covariates by ID, compute follow-up time in years, keep post-baseline observations with ≥2 visits per subject, fit an LMM scale(outcome) ~ time_yrs*tnfr1_z + covariates + (1 + time_yrs | ID) (add ICV for MRI volumes if needed), and export the tnfr1_z and time_yrs:tnfr1_z effects.
 # ADNI main analysis (example): TNFR1 (tnfr1_z) -> CSF tau
 library(dplyr)
 library(lme4)
