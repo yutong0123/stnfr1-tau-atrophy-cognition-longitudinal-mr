@@ -16,7 +16,7 @@ logit_df <- analysis_wide %>%
     cognition2018 %in% c("MCI","Dementia") | cognition2020 %in% c("MCI","Dementia")
   ))
 
-# ---- helper: logistic ----
+# ---- logistic ----
 fit_logit <- function(formula, label){
   glm(formula, family = binomial, data = logit_df) |>
     tidy(exponentiate = TRUE, conf.int = TRUE) |>
@@ -37,7 +37,7 @@ logit_out <- bind_rows(
 
 write.csv(logit_out, "output/logistic_or_ci.csv", row.names = FALSE)
 
-# ---- helper: LMM ----
+# ---- LMM ----
 fit_lmm <- function(prefix, name){
   long_df <- analysis_wide %>%
     pivot_longer(starts_with(prefix), names_to="wave", values_to="score") %>%
