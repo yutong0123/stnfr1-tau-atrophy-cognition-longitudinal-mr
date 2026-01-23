@@ -94,3 +94,73 @@ tidy(m_tau, effects = "fixed", conf.int = TRUE) %>%
   write.csv("output/adni_example_tau_terms.csv", row.names = FALSE)
 
 cat("Done: output/adni_example_tau_terms.csv\n")
+
+#MR Main Analysis
+ # run_mr_online.R (one-page, concise & reproducible)
+stopifnot(nzchar(Sys.getenv("OPENGWAS_JWT")))
+
+suppressPackageStartupMessages({
+  library(ieugwasr); library(TwoSampleMR)
+  library(dplyr); library(purrr); library(readr)
+})
+
+# ---- CONFIG ----
+chr_gene <- 12L; gene_start <- 6437923L; gene_end <- 6451280L; cis_kb <- 500L
+win_start <- gene_start - cis_kb*1000L; win_end <- gene_end + cis_kb*1000L
+exposure_id <- "ebi-a-GCST90012015"; p_thr <- 5e-8
+clump_kb <- 10000; clump_r2 <- 0.001; pop <- "EUR"
+outcomes <- c("ubm-b-216","ubm-b-199","ubm-b-217","ubm-b-200","ubm-b-351","ubm-b-384",
+              "ubm-b-401","ubm-b-368","ubm-b-196","ubm-b-213")
+
+# ---- HELPERS ----
+with_retry <- function(fun, tries=2) {
+  for (i in 1:tries) { x <- try(fun(), TRUE); if (!inherits(x,"try-error")) return(x); Sys.sleep(0.3*i) }
+  NULL
+}
+
+run_one <- function(exp_all, out_id) {
+  exp_cis <- exp_all %>%
+    mutate(chr_num = suppressWarnings(as.integer(chr.exposure))) %>%
+    filter(chr_num==chr_gene, pos.exposure>=win_start, pos.exposure<=win_end)
+  if (nrow(exp_cis)==0) return(NULL)
+
+  exp_cis <- with_retry(function() clump_data(exp_cis, clump_kb=clump_kb, clump_r2=clump_r2, pop=pop), 2)
+  if (is.null(exp_cis) || nrow(exp_cis)==0) return(NULL)
+
+  out_dat <- with_retry(function() extract_outcome_data(snps=exp_cis$SNP, outcomes=out_id), 2)
+  if (is.null(out_dat) || nrow(out_dat)==0) return(NULL)
+
+  dat0 <- harmonise_data(exp_cis, out_dat, action=2) %>% add_metadata()
+
+  steiger_any <- NA; steiger_pmin <- NA
+  try({
+    dr <- TwoSampleMR::directionality_test(dat0)
+    if ("correct_causal_direction" %in% names(dr)) steiger_any <- any(dr$correct_causal_direction, na.rm=TRUE)
+    if (is.na(steiger_any) && "steiger_dir" %in% names(dr)) steiger_any <- any(dr$steiger_dir, na.rm=TRUE)
+    if ("steiger_pval" %in% names(dr)) { steiger_pmin <- suppressWarnings(min(dr$steiger_pval, na.rm=TRUE)); if (!is.finite(steiger_pmin)) steiger_pmin <- NA_real_ }
+  }, silent=TRUE)
+
+  dat <- steiger_filtering(dat0)
+  if (!("steiger_dir" %in% names(dat))) return(NULL)
+  dat <- dat %>% filter(steiger_dir | is.na(steiger_dir))
+
+  nsnp <- length(unique(dat$SNP)); if (nsnp==0) return(NULL)
+  methods <- if (nsnp==1) "mr_wald_ratio" else if (nsnp==2) c("mr_ivw","mr_weighted_median") else c("mr_ivw","mr_weighted_median","mr_egger_regression")
+
+  mr(dat, method_list=methods) %>%
+    mutate(model="main", nsnp=nsnp, ci_low=b-1.96*se, ci_high=b+1.96*se,
+           steiger_any=steiger_any, steiger_pmin=steiger_pmin)
+}
+
+# ---- RUN ----
+exp_all <- with_retry(function() extract_instruments(outcomes=exposure_id, p1=p_thr, clump=FALSE), 2)
+stopifnot(!is.null(exp_all), nrow(exp_all)>0, all(c("chr.exposure","pos.exposure") %in% names(exp_all)))
+
+res <- map(outcomes, ~ tryCatch(run_one(exp_all, .x), error=function(e) NULL)) %>%
+  compact() %>% bind_rows() %>%
+  filter(method %in% c("Wald ratio","Inverse variance weighted","Weighted median")) %>%
+  select(model, method, nsnp, exposure, outcome, b, se, ci_low, ci_high, pval, steiger_any, steiger_pmin)
+
+write_tsv(res, "main_mr.tsv")
+writeLines(capture.output(sessionInfo()), "sessionInfo.txt")
+                                                                                                                                                                                                                                                                                                                     
